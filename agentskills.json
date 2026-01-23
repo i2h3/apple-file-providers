@@ -1,0 +1,171 @@
+{
+  "$schema": "https://agentskills.io/schema/v1",
+  "version": "1.0.0",
+  "name": "apple-file-provider-expertise",
+  "title": "Apple File Provider Framework Expert Knowledge",
+  "description": "Expert guidance on the Apple File Provider framework for iOS and macOS, including pitfalls, best practices, and implementation details not covered in official documentation.",
+  "author": "Iva Horn",
+  "license": "MIT",
+  "tags": [
+    "apple",
+    "ios",
+    "macos",
+    "file-provider",
+    "fileproviderd",
+    "file-system",
+    "cloud-storage",
+    "nsfileproviderextension"
+  ],
+  "knowledge": [
+    {
+      "id": "file-provider-overview",
+      "title": "File Provider Framework Overview",
+      "category": "fundamentals",
+      "content": "The File Provider framework allows apps to integrate with the system's file system on iOS and macOS, enabling cloud storage services, document providers, and custom file system integrations. A file provider extension runs as a separate process (fileproviderd) and communicates with the main app through XPC. Key components include NSFileProviderExtension, NSFileProviderItem protocol, NSFileProviderManager, and NSFileProviderDomain."
+    },
+    {
+      "id": "extension-lifecycle",
+      "title": "Extension Lifecycle and Process Management",
+      "category": "fundamentals",
+      "content": "File provider extensions have a complex lifecycle:\n\n1. **Separate Process**: Extensions run in 'fileproviderd', not your app process\n2. **On-Demand Loading**: The system loads extensions when needed and can terminate them at any time\n3. **State Persistence**: You MUST persist state to disk, never rely on in-memory state\n4. **No Shared Memory**: Extensions cannot share memory with the main app\n5. **Background Execution**: Extensions may run while your app is suspended or terminated\n\nCRITICAL: Always implement proper state saving/loading, as the extension can be terminated at any time without warning."
+    },
+    {
+      "id": "domain-management",
+      "title": "Domain Management Pitfalls",
+      "category": "pitfalls",
+      "content": "Domains are isolated file provider instances. Common issues:\n\n1. **Domain Registration Timing**: Register domains BEFORE trying to use them. Attempting to use an unregistered domain causes silent failures or crashes\n2. **Domain Identifiers**: Must be unique and persistent. Changing a domain identifier requires migration\n3. **Multiple Domains**: Each domain is independent with its own database and state\n4. **Domain Removal**: removeAllDomains() or removeDomain() deletes ALL associated data. There's no undo\n5. **Domain Display Name**: Can be changed, but changes may not reflect immediately in Files.app\n\nBest Practice: Register domains during app initialization, not in the extension. Use NSFileProviderManager.add(domain:) in your main app."
+    },
+    {
+      "id": "enumeration-pitfalls",
+      "title": "Enumeration Implementation Pitfalls",
+      "category": "pitfalls",
+      "content": "Implementing NSFileProviderEnumerator correctly is crucial but error-prone:\n\n1. **Page Size**: Return items in reasonable chunks (50-200 items). Too many causes memory issues, too few causes performance problems\n2. **Sync Anchors**: MUST be persistent and unique per enumeration state. Returning nil or stale anchors causes infinite enumeration loops\n3. **Working Set vs Root**: The working set enumerator (NSFileProviderWorkingSetContainerItemIdentifier) is called frequently. Keep it fast and return only recently changed items\n4. **Error Handling**: Return proper NSFileProviderError codes. Generic errors cause the Files.app to show confusing messages\n5. **Change Enumeration**: When enumerating changes from an anchor, MUST include deletions (items that no longer exist)\n6. **Threading**: Enumerators may be called from different threads. Ensure thread safety\n7. **Pagination**: Use the page parameter properly. Starting from page 0 and incrementing for each batch\n\nCRITICAL: The enumerateItems() method is called repeatedly until you call finishEnumerating(). Forgetting to call this causes 100% CPU usage."
+    },
+    {
+      "id": "item-identity",
+      "title": "Item Identity and Metadata",
+      "category": "pitfalls",
+      "content": "NSFileProviderItem protocol implementation is the foundation of the framework:\n\n1. **Item Identifiers**: MUST be stable and unique. Changing an identifier means a new item to the system\n2. **Root Item**: NSFileProviderRootContainerItemIdentifier is the root. Your items MUST have valid parent chains leading to root\n3. **Orphaned Items**: Items with non-existent parents cause enumeration failures\n4. **Content Type**: Use proper UTType values. Incorrect types break Quick Look and file operations\n5. **Capabilities**: NSFileProviderItemCapabilities affect what operations Files.app allows. Be specific\n6. **Version Identifiers**: MUST change when item content/metadata changes. Stale versions prevent syncing\n7. **Document Sizes**: Return accurate file sizes. Incorrect sizes break progress indicators and storage calculations\n8. **Type Conformance**: Folders MUST conform to public.folder, files to appropriate content types\n\nBest Practice: Create a robust struct/class implementing NSFileProviderItem with validation logic."
+    },
+    {
+      "id": "fetch-contents",
+      "title": "Fetching and Providing File Contents",
+      "category": "fundamentals",
+      "content": "Implementing fetchContents() and startProvidingItem():\n\n1. **Placeholder Files**: Use NSFileProviderManager.writePlaceholder() for fast enumeration. Placeholders contain metadata without content\n2. **Download Strategy**: Implement progressive download for large files. Use NSProgress for accurate progress reporting\n3. **Local Files**: For already-downloaded files, return the local URL immediately\n4. **Temporary Files**: When downloading, write to a temporary location first, then move atomically\n5. **Cancellation**: Properly handle task cancellation. Clean up partial downloads\n6. **NSProgress**: Create and configure NSProgress objects properly. Set totalUnitCount and fractionCompleted\n7. **Coordination**: Use NSFileCoordinator for file access to prevent conflicts\n\nCRITICAL: startProvidingItem(at:completionHandler:) expects you to materialize the file at the provided URL. Failing to do so causes file access errors."
+    },
+    {
+      "id": "import-create-modify",
+      "title": "Creating, Importing, and Modifying Items",
+      "category": "fundamentals",
+      "content": "File creation and modification operations:\n\n1. **importDocument()**: Called when a file is copied INTO your domain. You must move/copy the file to your storage and return the new NSFileProviderItem\n2. **createDirectory()**: Create folders both locally and in your backend. Return the created item\n3. **modifyItem()**: Called for renames, moves, metadata changes, and content updates. Check which fields changed\n4. **Atomic Operations**: Changes should be atomic. Either fully succeed or fully fail\n5. **Conflict Handling**: Implement proper conflict resolution. Use baseVersion to detect conflicts\n6. **Error Recovery**: Return specific NSFileProviderError codes for better user experience\n7. **Side Effects**: Update your local database AND sync to backend. Both must succeed\n\nCRITICAL: After any modification, notify the system with NSFileProviderManager.signalEnumerator() so Files.app shows updated state."
+    },
+    {
+      "id": "delete-trash",
+      "title": "Deletion and Trash Handling",
+      "category": "fundamentals",
+      "content": "File deletion is more complex than it appears:\n\n1. **deleteItem()**: Called when user deletes a file. You must delete from your storage\n2. **Trash Support**: Implement NSFileProviderItemCapabilities.allowsTrashing if your backend has trash/recycle bin\n3. **Permanent Deletion**: Without trash support, deletions are immediate and permanent\n4. **Deletion vs Eviction**: Deletion removes the item. Eviction removes local content but keeps metadata\n5. **Cascading Deletes**: Deleting a folder must delete all children. Handle this recursively\n6. **Error Scenarios**: What if delete succeeds locally but fails remotely? Implement reconciliation\n\nBest Practice: Support trash/recovery if your backend supports it. Users expect an undo option."
+    },
+    {
+      "id": "materialization-eviction",
+      "title": "Materialization and Eviction",
+      "category": "advanced",
+      "content": "Managing local storage of cloud files:\n\n1. **Materialization**: The process of downloading a file's contents. Triggered by user access or system request\n2. **Eviction**: The process of removing local file contents to free space while keeping metadata\n3. **Pinning**: Users can pin files to keep them always available offline\n4. **System Eviction**: System may evict files automatically when storage is low\n5. **evictItem()**: Handle eviction requests. Delete local content but keep metadata\n6. **Materialization State**: Track which items are materialized, use NSFileProviderMaterializedSetEnumerator\n\nCRITICAL: Never delete metadata during eviction. Only remove file contents. The system should still enumerate the item."
+    },
+    {
+      "id": "sync-push-pull",
+      "title": "Synchronization Patterns",
+      "category": "advanced",
+      "content": "Implementing robust sync between local and remote:\n\n1. **Push Sync**: Changes made locally (via Files.app) must be uploaded to backend\n2. **Pull Sync**: Changes made remotely (another device, web) must be reflected locally\n3. **Signal Enumerator**: After pull sync, call NSFileProviderManager.signalEnumerator() for affected containers\n4. **Conflict Resolution**: Implement Last-Writer-Wins, user-prompt, or version-based resolution\n5. **Batch Operations**: Sync multiple changes in batches for efficiency\n6. **Background URL Sessions**: Use URLSession with background configuration for reliable uploads/downloads\n7. **Metadata vs Content**: Metadata syncs should be fast. Content syncs can be lazy\n\nBest Practice: Implement a sync engine in a shared framework that both app and extension can use."
+    },
+    {
+      "id": "error-handling",
+      "title": "Error Handling Best Practices",
+      "category": "best-practices",
+      "content": "Proper error handling improves user experience dramatically:\n\n1. **NSFileProviderError**: Use specific error codes from NSFileProviderError domain\n   - .noSuchItem: Item doesn't exist\n   - .insufficientQuota: Out of storage\n   - .serverUnreachable: Network issues\n   - .notAuthenticated: Authentication required\n2. **User-Visible Errors**: Files.app shows error descriptions to users. Make them clear and actionable\n3. **Retry Logic**: Implement exponential backoff for transient errors\n4. **Error Recovery**: Some errors are recoverable. Provide recovery options when possible\n5. **Logging**: Log errors thoroughly for debugging, but don't spam logs\n\nExample error user info:\nlet error = NSError(domain: NSFileProviderErrorDomain, code: NSFileProviderError.serverUnreachable.rawValue, userInfo: [\n  NSLocalizedDescriptionKey: \"Cannot reach server\",\n  NSLocalizedRecoverySuggestionErrorKey: \"Check your internet connection and try again\"\n])"
+    },
+    {
+      "id": "debugging-strategies",
+      "title": "Debugging File Provider Extensions",
+      "category": "debugging",
+      "content": "Debugging extensions is challenging due to separate processes:\n\n1. **Console.app**: Use Console.app to view logs from fileproviderd process. Filter by process name\n2. **os_log**: Use unified logging system. Create custom subsystems for filtering\n3. **Attach Debugger**: Xcode > Debug > Attach to Process > fileproviderd\n4. **Extension Scheme**: Create a debug scheme that launches Files.app and attaches to extension\n5. **Logging Strategy**: Log entry/exit of all delegate methods with parameters\n6. **State Inspection**: Add debug endpoints to dump internal state\n7. **Simulate Conditions**: Test with airplane mode, low storage, process termination\n8. **Database Tools**: Use SQLite browser to inspect FileProvider database\n\nCRITICAL: Use os_log with appropriate log levels. Use .debug for verbose, .error for issues. This helps filter in Console.app."
+    },
+    {
+      "id": "ios-specifics",
+      "title": "iOS-Specific Considerations",
+      "category": "platform-specific",
+      "content": "iOS has unique constraints:\n\n1. **Files.app**: Primary interface for file provider on iOS\n2. **Storage Limits**: iOS is more aggressive about storage. Implement eviction properly\n3. **Background Execution**: Extensions have limited background time. Use background URL sessions\n4. **Network Constraints**: iOS may restrict network on cellular. Handle low-data mode\n5. **App Groups**: Use App Groups to share data between main app and extension\n6. **Keychain Sharing**: Enable keychain sharing for authentication tokens\n7. **Screen Size**: Files.app works on iPhone and iPad. Test both\n8. **iOS Versions**: Different iOS versions have different file provider capabilities. Test across versions\n\nBest Practice: Always test on physical iOS devices. Simulator behavior differs from real devices."
+    },
+    {
+      "id": "macos-specifics",
+      "title": "macOS-Specific Considerations",
+      "category": "platform-specific",
+      "content": "macOS has different characteristics:\n\n1. **Finder Integration**: File provider integrates deeply with Finder\n2. **Sidebar**: Domains appear in Finder sidebar. Test icon and naming\n3. **System Extension**: On macOS 11+, file providers are system extensions requiring user approval\n4. **Activation**: Use SystemExtensions framework for installation and activation\n5. **Desktop Storage**: Users may store many files. Handle large datasets efficiently\n6. **Menu Bar**: Consider adding menu bar presence for sync status\n7. **Multiple Windows**: Finder can have multiple windows accessing your domain simultaneously\n8. **Spotlight**: Implement proper metadata for Spotlight search\n\nCRITICAL: macOS system extension approval is required. Guide users through the approval process in System Preferences > Privacy & Security."
+    },
+    {
+      "id": "testing-strategy",
+      "title": "Testing Strategy and Common Test Cases",
+      "category": "best-practices",
+      "content": "Comprehensive testing is essential:\n\n1. **Unit Tests**: Test item identity, metadata generation, conflict resolution logic\n2. **Integration Tests**: Test full sync cycles, error handling, retry logic\n3. **Manual Testing**: Use Files.app/Finder extensively\n4. **Test Scenarios**:\n   - Create file/folder\n   - Rename file/folder\n   - Move file between folders\n   - Delete file/folder\n   - Large file upload (>1GB)\n   - Many small files (1000+)\n   - Network interruption during sync\n   - Concurrent modifications\n   - Process termination and recovery\n   - Low storage scenarios\n   - Authentication expiration\n5. **Tools**: Use Charles Proxy or similar to simulate network conditions\n6. **Automation**: Consider UI testing with XCTest for Files.app interactions\n\nBest Practice: Create a test checklist and verify all scenarios before each release."
+    },
+    {
+      "id": "performance-optimization",
+      "title": "Performance Optimization Tips",
+      "category": "best-practices",
+      "content": "File provider performance directly affects user experience:\n\n1. **Database Indexing**: Index frequently queried fields in your local database\n2. **Lazy Loading**: Don't load all metadata at once. Use pagination\n3. **Caching**: Cache frequently accessed metadata in memory with proper invalidation\n4. **Batch Operations**: Group multiple file operations into single network requests\n5. **Parallel Downloads**: Download multiple files concurrently (but respect rate limits)\n6. **Thumbnail Generation**: Generate thumbnails asynchronously, don't block enumeration\n7. **Working Set Size**: Keep working set small (changed items in last 7 days)\n8. **Database Optimization**: Use Core Data or SQLite with proper indexes and queries\n9. **Memory Management**: Extensions have lower memory limits. Watch memory usage\n10. **Background Tasks**: Use URLSession background configuration for large transfers\n\nCRITICAL: Profile with Instruments. Use Time Profiler and Allocations templates to find bottlenecks."
+    },
+    {
+      "id": "security-considerations",
+      "title": "Security and Privacy Considerations",
+      "category": "best-practices",
+      "content": "Security is paramount when handling user files:\n\n1. **Keychain Storage**: Store authentication tokens in keychain, never in UserDefaults\n2. **File Encryption**: Consider encrypting local file cache\n3. **Network Security**: Use HTTPS for all network requests. Implement certificate pinning\n4. **Data Protection**: Use iOS Data Protection for files (NSFileProtectionComplete)\n5. **Secure Deletion**: Securely delete temporary files and caches\n6. **Authentication**: Implement robust authentication with token refresh\n7. **Sandboxing**: Respect sandbox boundaries. Don't try to access files outside your domain\n8. **Logging**: Don't log sensitive information (tokens, passwords, file contents)\n9. **GDPR/Privacy**: If applicable, handle user data according to privacy regulations\n\nCRITICAL: Never store authentication tokens in plaintext. Always use keychain with proper access controls."
+    },
+    {
+      "id": "common-crashes",
+      "title": "Common Crash Scenarios and Fixes",
+      "category": "pitfalls",
+      "content": "Common crashes and how to prevent them:\n\n1. **Crash: Accessing deallocated objects**\n   - Cause: Extension terminated, objects deallocated, async callback accesses them\n   - Fix: Use weak self in closures, check object validity\n\n2. **Crash: Enumeration never finishes**\n   - Cause: Forgot to call finishEnumerating() or error in pagination logic\n   - Fix: Always call completion handler, even on error\n\n3. **Crash: Invalid parent hierarchy**\n   - Cause: Item parent doesn't exist or circular reference\n   - Fix: Validate parent chain, ensure all items trace to root\n\n4. **Crash: File URL doesn't exist**\n   - Cause: Promised to provide file at URL but didn't materialize it\n   - Fix: Always write file contents before calling completion\n\n5. **Crash: Threading issues**\n   - Cause: Accessing non-thread-safe objects from multiple threads\n   - Fix: Use proper synchronization, dispatch queues\n\n6. **Crash: Memory pressure**\n   - Cause: Loading too many items in memory\n   - Fix: Use pagination, release objects promptly\n\nBest Practice: Enable all runtime diagnostics in scheme settings for testing."
+    },
+    {
+      "id": "documentation-gaps",
+      "title": "Official Documentation Gaps",
+      "category": "pitfalls",
+      "content": "Issues not well covered in Apple's documentation:\n\n1. **Extension Lifecycle Details**: Docs don't explain when extensions are loaded/unloaded\n2. **Working Set Semantics**: What should actually be in the working set is unclear\n3. **Performance Expectations**: No guidelines on acceptable latencies\n4. **Error Recovery**: Limited guidance on recovering from errors\n5. **Migration**: No clear path for migrating between file provider versions\n6. **Multi-Domain**: Behavior with multiple domains is under-documented\n7. **Conflict Resolution**: No standard patterns provided\n8. **Database Schema**: No recommendations on local database structure\n9. **Testing Tools**: No official testing utilities provided by Apple\n10. **Debugging**: Limited debugging documentation\n\nBest Practice: Study open-source file provider implementations and WWDC sessions for insights."
+    },
+    {
+      "id": "code-organization",
+      "title": "Code Organization and Architecture",
+      "category": "best-practices",
+      "content": "Recommended code structure:\n\n1. **Shared Framework**: Create a shared framework for code used by both app and extension\n   - Networking layer\n   - Database models\n   - Authentication\n   - Sync engine\n\n2. **Extension Target**: Keep extension code minimal\n   - NSFileProviderExtension subclass\n   - Enumerator implementations\n   - Delegate method implementations\n\n3. **Separation of Concerns**:\n   - ItemManager: Handles NSFileProviderItem creation and metadata\n   - SyncEngine: Handles sync logic\n   - StorageManager: Handles local file storage\n   - NetworkClient: Handles API calls\n   - DatabaseManager: Handles local database\n\n4. **Protocol-Oriented Design**: Use protocols for testability\n\n5. **Error Handling Layer**: Centralize error handling and mapping\n\nExample structure:\n- MyApp/\n- MyAppFileProvider/ (extension)\n- MyAppCore/ (shared framework)\n  - Models/\n  - Networking/\n  - Storage/\n  - Sync/\n  - Database/"
+    },
+    {
+      "id": "wwdc-sessions",
+      "title": "Essential WWDC Sessions",
+      "category": "resources",
+      "content": "Key WWDC sessions to watch:\n\n1. **WWDC 2017 Session 243**: Building Great Document-based Apps in iOS 11\n2. **WWDC 2019 Session 719**: Advances in File Provider\n3. **WWDC 2020 Session 10671**: What's New in File Provider\n4. **WWDC 2021 Session 10162**: Improve access to Files in your app\n5. **WWDC 2022 Session 10041**: What's new in FileProvider\n\nThese sessions cover:\n- Framework introduction and evolution\n- New APIs and capabilities\n- Best practices from Apple engineers\n- Example implementations\n- Common pitfalls\n\nBest Practice: Watch these sessions in chronological order to understand framework evolution."
+    },
+    {
+      "id": "migration-strategy",
+      "title": "Version Migration and Updates",
+      "category": "advanced",
+      "content": "Handling app updates with file provider changes:\n\n1. **Database Migration**: Plan for schema changes in local database\n   - Use Core Data automatic migration or custom migration for SQLite\n   - Never delete user data without explicit permission\n\n2. **Domain Changes**: Changing domain identifiers requires migration\n   - Create new domain\n   - Migrate data\n   - Remove old domain\n   - Inform users\n\n3. **API Version Changes**: Handle backend API changes gracefully\n   - Version your API protocol\n   - Support old versions temporarily\n   - Detect version on launch\n\n4. **Breaking Changes**: Sometimes breaking changes are necessary\n   - Clear communication to users\n   - Provide migration path\n   - Consider re-sync option\n\n5. **Testing Migrations**: Test upgrades from previous versions\n   - Keep old version installed\n   - Upgrade and verify data integrity\n\nCRITICAL: Always test upgrade path from previous version. Data loss during updates is unacceptable."
+    },
+    {
+      "id": "background-upload",
+      "title": "Background Upload Implementation",
+      "category": "advanced",
+      "content": "Implementing reliable background uploads:\n\n1. **URLSession Configuration**:\n   ```swift\n   let config = URLSessionConfiguration.background(withIdentifier: \"com.myapp.upload\")\n   config.isDiscretionary = false\n   config.sessionSendsLaunchEvents = true\n   ```\n\n2. **Handle Completion**: Implement application(_:handleEventsForBackgroundURLSession:)\n\n3. **Task Association**: Store mapping between URLSessionTask and file item identifier\n\n4. **Progress Tracking**: Update NSFileProviderItem version when upload completes\n\n5. **Error Recovery**: Handle upload failures and retry\n\n6. **User Notification**: Notify user of completed uploads if app is in background\n\n7. **Cellular Data**: Respect low-data mode and cellular restrictions\n\nBest Practice: Use background URLSession for all uploads >1MB."
+    },
+    {
+      "id": "thumbnail-metadata",
+      "title": "Thumbnail and Metadata Provider",
+      "category": "advanced",
+      "content": "Providing thumbnails and metadata for Quick Look:\n\n1. **Thumbnail Extension**: Consider adding separate thumbnail extension for custom formats\n\n2. **NSFileProviderItem Properties**:\n   - thumbnailImageData: Small thumbnail (up to 32KB recommended)\n   - tagData: Finder tags\n   - contentModificationDate: Last modified date\n   - creationDate: Creation date\n\n3. **Quick Look**: Ensure proper UTType for Quick Look preview\n\n4. **Performance**: Generate thumbnails asynchronously, don't block enumeration\n\n5. **Caching**: Cache generated thumbnails, don't regenerate every time\n\n6. **Metadata Extraction**: Extract useful metadata from files (EXIF for images, ID3 for audio)\n\nBest Practice: Provide thumbnails for better user experience, but don't let it slow enumeration."
+    },
+    {
+      "id": "real-world-tips",
+      "title": "Real-World Implementation Tips",
+      "category": "best-practices",
+      "content": "Lessons learned from production implementations:\n\n1. **Start Simple**: Begin with read-only provider, add write support later\n\n2. **Monitoring**: Implement analytics to track:\n   - Sync success/failure rates\n   - Average sync times\n   - File size distribution\n   - Error frequency by type\n\n3. **User Feedback**: Provide visible sync status in main app\n\n4. **Rate Limiting**: Respect API rate limits, implement backoff\n\n5. **Incremental Sync**: Don't re-sync everything on every launch\n\n6. **Selective Sync**: Consider allowing users to choose which folders to sync\n\n7. **Conflicts**: Surface conflicts to users when automatic resolution isn't clear\n\n8. **Network Efficiency**: Use delta sync when backend supports it\n\n9. **Battery Impact**: Monitor and minimize battery usage\n\n10. **Storage Management**: Help users understand storage usage\n\nCRITICAL: Monitor production metrics. User-reported issues often don't capture the full picture."
+    }
+  ]
+}
