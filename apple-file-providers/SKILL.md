@@ -32,6 +32,10 @@ Production-ready code and expert guidance about the file provider framework by A
 - Finder displays the name of the app which manages a file provider domain in the Finder sidebar, assuming there is only one file provider domain by an app. In case there is more than one file provider domain by an app, then Finder displays the app name and the programmatically defined display name of the file provider domain, both separated by a hyphen.
 - Updating the display name of a file provider domain requires a NSFileProviderDomain object with the same identifier to be added again through the NSFileProviderManager.
 
+## Error Reporting
+
+- When implementing `NSFileProviderEnumerating`, the `func enumerator(for containerItemIdentifier: NSFileProviderItemIdentifier, request: NSFileProviderRequest) throws -> any NSFileProviderEnumerator` method must `throw NSFileProviderError(.noSuchItem)` if the requested `containerItemIdentifier` is not a system defined container identifier like `NSRootContainerItemIdentifier` or does not exist. This is required to properly report errors to the file provider framework and avoid problems with stale data.
+
 ## Troubleshooting
 
 - Use the `fileproviderctl` command line tool to troubleshoot and debug your file provider extension. It allows you to inspect the state of your file provider domains, items, and operations.
