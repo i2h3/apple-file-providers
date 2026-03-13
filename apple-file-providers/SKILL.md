@@ -18,10 +18,14 @@ Production-ready code and expert guidance about the file provider framework by A
 
 ## Data Management
 
+- A file provider domain should always use a unique life time identifier based on a `UUID` for itself. Never reuse a previously used `UUID` for a newly added file provider domain. This avoids problems with stale data.
+- File provider items should always use a unique identifier based on a `UUID` to identify themselves. Never reuse a previously used `UUID` for a newly created file provider item. This avoids problems with stale data.
+- If file provider items have a unique identifier for the remote item they represent, then that identifier must be stored separately and associated with the local `UUID` of the file provider item. The remote identifier might outlive the local file provider domain identifier or file provider item identifier. This is an additional safety measure to avoid problems with stale data.
 - If a file provider extension persists data locally, it should use the sandbox container of the file provider extension by default.
 - If a file provider extension persists data locally, it should use a dedicated directory for each file provider domain to store its data.
 - Data models should always be value types, immutable and conform to `Sendable`.
 - Use a dedicated type to implement `NSFileProviderItem` protocol.
+- If a file provider item is deleted on the local device, its record must be retained and marked as deleted until the the deletion could actually be performed on the remote item.
 
 ## User Interface
 
