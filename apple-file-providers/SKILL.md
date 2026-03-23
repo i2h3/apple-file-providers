@@ -26,6 +26,7 @@ Production-ready code and expert guidance about the file provider framework by A
 - Data models should always be value types, immutable and conform to `Sendable`.
 - Use a dedicated type to implement `NSFileProviderItem` protocol.
 - If a file provider item is deleted on the local device, its record must be retained and marked as deleted until the the deletion could actually be performed on the remote item.
+- If a file provider item is detected as deleted on the remote end, it must also be deleted from the local metadata persistence but only after it has been reported to the file provider framework as deleted. This is required to properly report deletions to the file provider framework and avoid problems with stale data.
 
 ## User Interface
 
