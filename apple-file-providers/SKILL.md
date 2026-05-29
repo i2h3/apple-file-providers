@@ -18,11 +18,27 @@ Production-ready code and expert guidance about the file provider framework by A
 
 ## Data Management
 
+### File Provider Domain Identifiers
+
 - A file provider domain should always use a unique life time identifier based on a `UUID` for itself. Never reuse a previously used `UUID` for a newly added file provider domain. This avoids problems with stale data.
 - File provider items should always use a unique identifier based on a `UUID` to identify themselves. Never reuse a previously used `UUID` for a newly created file provider item. This avoids problems with stale data.
+
+### File Provider Item Identifiers
+
 - If file provider items have a unique identifier for the remote item they represent, then that identifier must be stored separately and associated with the local `UUID` of the file provider item. The remote identifier might outlive the local file provider domain identifier or file provider item identifier. This is an additional safety measure to avoid problems with stale data.
-- If a file provider extension persists data locally, it should use the sandbox container of the file provider extension by default.
-- If a file provider extension persists data locally, it should use a dedicated directory for each file provider domain to store its data.
+
+### File Provider Item User Data
+
+- Once file provider items have been enumerated by the framework, their `userInfo` dictionary is cached by the framework. Updates to the `userInfo` dictionary can only be achieved by provoking a re-enumeration of the item by the framework.
+
+### File Provider Domain Support Data
+
+- If a file provider extension persists data locally, it should use the group container shared with its main app by default. `FileManager.default.containerURL(forSecurityApplicationGroupIdentifier:)` can resolve the URL for the group container.
+- If a file provider extension persists data locally, it cannot create arbitrary directories in the group container due to sandbox restrictions but must use the `Library/Application Support` directory in the group container and place everything below that.
+- If a file provider extension persists data locally, it should use a dedicated directory for each file provider domain to store its data. In example: `<group container>/Library/Application Support/File Provider Domains/<file provider domain identifier>/`. The intermediate `File Provider Domains` directory is optional but should be used to separate file provider domain data from other data in the `Application Support` directory.
+
+### Data Models
+
 - Data models should always be value types, immutable and conform to `Sendable`.
 - Use a dedicated type to implement `NSFileProviderItem` protocol.
 - If a file provider item is deleted on the local device, its record must be retained and marked as deleted until the the deletion could actually be performed on the remote item.
@@ -32,6 +48,8 @@ Production-ready code and expert guidance about the file provider framework by A
 
 - Finder displays the name of the app which manages a file provider domain in the Finder sidebar, assuming there is only one file provider domain by an app. In case there is more than one file provider domain by an app, then Finder displays the app name and the programmatically defined display name of the file provider domain, both separated by a hyphen.
 - Updating the display name of a file provider domain requires a NSFileProviderDomain object with the same identifier to be added again through the NSFileProviderManager.
+- File provider domain display names must not end with a DNS domain because there are popular top-level (in example: `app`) which collide with macOS package and bundle recognition. macOS then misinterprets a file provider domain root directory as a broken app bundle and it cannot be opened like a folder in Finder and elsewhere.
+- Custom file provider actions have activation rules which usually query the `userInfo` dictionary of an item cached by the file provider framework. When a new custom file provider action is introduced in a new app release, it will query the cached `userInfo` dictionary of items which were enumerated by the framework in previous app releases. That cached `userInfo` dictionary might not yet contain the expected keys for the new custom file provider action. A re-enumeration of the items is required to update the cached `userInfo` dictionary.
 
 ## Error Reporting
 
